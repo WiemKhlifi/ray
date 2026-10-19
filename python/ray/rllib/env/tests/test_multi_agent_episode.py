@@ -523,6 +523,83 @@ class TestMultiAgentEpisode(unittest.TestCase):
         check(episode._hanging_rewards_end["agent_3"], 2.2)
         check(episode._hanging_rewards_begin["agent_5"], 1.0)
 
+    def test_add_env_step_new_agent_joins_when_last_registered_agent_terminates(self):
+        # A new agent's first observation arrives on the same env step on which the
+        # last registered agent terminates, and the env reports `__all__=False`. The
+        # episode must stay open and the new agent must be registered.
+        episode = MultiAgentEpisode(agent_module_ids={"a0": "p", "a1": "p"})
+        episode.add_env_reset(observations={"a0": np.zeros(1)}, infos={"a0": {}})
+
+        episode.add_env_step(
+            observations={"a0": np.zeros(1), "a1": np.ones(1)},
+            actions={"a0": 0},
+            rewards={"a0": 1.0, "a1": 0.0},
+            terminateds={"a0": True, "__all__": False},
+            truncateds={"__all__": False},
+        )
+
+        self.assertFalse(episode.is_done)
+        self.assertEqual(episode.agent_ids, {"a0", "a1"})
+        self.assertTrue(episode.agent_episodes["a0"].is_terminated)
+        self.assertFalse(episode.agent_episodes["a1"].is_done)
+
+    def test_add_env_step_episode_ends_when_every_agent_is_done(self):
+        # Once every agent (including any newcomer) is done, the episode ends even if
+        # the env does not set `__all__` ("Case 2").
+        cases = {
+            # name: (agents at reset, observations, terminateds, truncateds)
+            "last_agent_terminates": (
+                ["a0"],
+                {"a0": np.zeros(1)},
+                {"a0": True, "__all__": False},
+                {"__all__": False},
+            ),
+            "mixed_terminated_and_truncated": (
+                ["a0", "a1"],
+                {"a0": np.zeros(1), "a1": np.zeros(1)},
+                {"a0": True, "a1": False, "__all__": False},
+                {"a0": False, "a1": True, "__all__": False},
+            ),
+            "newcomer_terminates_on_its_first_observation": (
+                ["a0"],
+                {"a0": np.zeros(1), "a1": np.ones(1)},
+                {"a0": True, "a1": True, "__all__": False},
+                {"__all__": False},
+            ),
+        }
+        for name, (reset_agents, obs, terminateds, truncateds) in cases.items():
+            with self.subTest(name):
+                episode = MultiAgentEpisode(agent_module_ids={"a0": "p", "a1": "p"})
+                episode.add_env_reset(
+                    observations={aid: np.zeros(1) for aid in reset_agents},
+                    infos={aid: {} for aid in reset_agents},
+                )
+
+                episode.add_env_step(
+                    observations=obs,
+                    actions={aid: 0 for aid in reset_agents},
+                    rewards={aid: 0.0 for aid in obs},
+                    terminateds=terminateds,
+                    truncateds=truncateds,
+                )
+
+                self.assertTrue(episode.is_terminated)
+
+    def test_add_env_step_without_observations_keeps_episode_open(self):
+        # A step in which the only live agent does not observe must not end the episode.
+        episode = MultiAgentEpisode(agent_module_ids={"a0": "p"})
+        episode.add_env_reset(observations={"a0": np.zeros(1)}, infos={"a0": {}})
+
+        episode.add_env_step(
+            observations={},
+            actions={"a0": 0},
+            rewards={},
+            terminateds={"__all__": False},
+            truncateds={"__all__": False},
+        )
+
+        self.assertFalse(episode.is_done)
+
     def test_get_observations(self):
         # Generate simple records for a multi agent environment.
         (
