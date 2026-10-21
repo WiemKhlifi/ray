@@ -2435,6 +2435,78 @@ class TestMultiAgentEpisode(unittest.TestCase):
 
         # --- is_terminated, is_truncated ---
 
+    def test_add_env_step_truncated_agents_are_not_terminated(self):
+        # When every agent is done, the episode ends even if the env doesn't set
+        # `__all__` ("Case 2"). Agents that are only truncated must not be marked
+        # terminated as well, or they lose their value bootstrap.
+        cases = {
+            # name: (terminateds, truncateds, expected {agent: (terminated, truncated)})
+            "time_limit_with_per_agent_flags": (
+                {"__all__": False},
+                {"a0": True, "a1": True, "__all__": True},
+                {"a0": (False, True), "a1": (False, True)},
+            ),
+            "time_limit_with_explicit_not_terminated": (
+                {"a0": False, "a1": False, "__all__": False},
+                {"a0": True, "a1": True, "__all__": True},
+                {"a0": (False, True), "a1": (False, True)},
+            ),
+            "all_truncated_without_all_key": (
+                {"__all__": False},
+                {"a0": True, "a1": True, "__all__": False},
+                {"a0": (False, True), "a1": (False, True)},
+            ),
+            "mixed_terminated_and_truncated": (
+                {"a0": True, "__all__": False},
+                {"a1": True, "__all__": False},
+                {"a0": (True, False), "a1": (False, True)},
+            ),
+            # The env's own `__all__` still terminates every agent.
+            "env_terminates_all": (
+                {"__all__": True},
+                {"a1": True, "__all__": False},
+                {"a0": (True, False), "a1": (True, True)},
+            ),
+        }
+        for name, (terminateds, truncateds, expected) in cases.items():
+            with self.subTest(name):
+                episode = MultiAgentEpisode(agent_module_ids={"a0": "p", "a1": "p"})
+                episode.add_env_reset(
+                    observations={"a0": np.zeros(1), "a1": np.zeros(1)}
+                )
+
+                episode.add_env_step(
+                    observations={"a0": np.zeros(1), "a1": np.zeros(1)},
+                    actions={"a0": 0, "a1": 0},
+                    rewards={"a0": 1.0, "a1": 1.0},
+                    terminateds=terminateds,
+                    truncateds=truncateds,
+                )
+
+                self.assertTrue(episode.is_done)
+                self.assertEqual(
+                    {
+                        aid: (sa_episode.is_terminated, sa_episode.is_truncated)
+                        for aid, sa_episode in episode.agent_episodes.items()
+                    },
+                    expected,
+                )
+
+    def test_get_truncateds_all_key_reflects_truncation(self):
+        episode = MultiAgentEpisode(agent_module_ids={"a0": "p"})
+        episode.add_env_reset(observations={"a0": np.zeros(1)})
+
+        episode.add_env_step(
+            observations={"a0": np.zeros(1)},
+            actions={"a0": 0},
+            rewards={"a0": 1.0},
+            terminateds={"__all__": False},
+            truncateds={"__all__": True},
+        )
+
+        self.assertFalse(episode.get_terminateds()["__all__"])
+        self.assertTrue(episode.get_truncateds()["__all__"])
+
     def test_cut(self):
         # Simple multi-agent episode, in which all agents always step.
         episode = self._create_simple_episode(

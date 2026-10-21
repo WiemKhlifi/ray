@@ -246,6 +246,8 @@ tag-mapping.json
 .buildkite/release/custom_byod_build.rayci.yml
 
 # Claude Code — track shared config, ignore personal/local files
+# TODO: revert once done
+.claude
 /.claude/settings.local.json
 /CLAUDE.md
 /CLAUDE-*.md

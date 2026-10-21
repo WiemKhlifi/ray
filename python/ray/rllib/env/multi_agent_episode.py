@@ -454,8 +454,15 @@ class MultiAgentEpisode:
             _action = actions.get(agent_id)
             _reward = rewards.get(agent_id)
             _infos = infos.get(agent_id)
-            _terminated = terminateds.get(agent_id, False) or self.is_terminated
             _truncated = truncateds.get(agent_id, False) or self.is_truncated
+            # The env's `__all__` terminates every agent. When the episode ends only
+            # because every agent is done ("Case 2" above), truncated agents stay
+            # truncated, so they keep their value bootstrap.
+            _terminated = (
+                terminateds.get(agent_id, False)
+                or terminateds.get("__all__", False)
+                or (self.is_terminated and not _truncated)
+            )
             _extra_model_outputs = extra_model_outputs.get(agent_id)
 
             # The value to place into the env- to agent-step map for this agent ID.
@@ -1427,7 +1434,7 @@ class MultiAgentEpisode:
             agent_id: self.agent_episodes[agent_id].is_truncated
             for agent_id in self.agent_ids
         }
-        truncateds.update({"__all__": self.is_terminated})
+        truncateds.update({"__all__": self.is_truncated})
         return truncateds
 
     def slice(
